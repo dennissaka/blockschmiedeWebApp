@@ -51,11 +51,11 @@ export async function testMailConnection(transportToUse = mailTransport) {
   try {
     console.log('Testing mail connection...');
     console.log({
-  host: config.mail.host,
-  port: config.mail.port,
-  secure: config.mail.secure,
-  auth: config.mail.auth,
-});
+      host: config.mail.host,
+      port: config.mail.port,
+      secure: config.mail.secure,
+      auth: config.mail.auth,
+    });
     await transportToUse.verify();
     console.log('✅ Mail connection OK');
   } catch (err) {
@@ -70,7 +70,7 @@ const createApp = () => {
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
 
-app.use(helmet({
+  app.use(helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
   }));
 
@@ -138,10 +138,10 @@ app.use(helmet({
       const lineItems = Array.isArray(orderPayload.line_items) ? orderPayload.line_items : [];
       const containsTargetProduct = lineItems.some((item) => String(item?.product_id ?? '') === targetProductId);
 
-      // if (!containsTargetProduct) {
-      //   console.log(`Order ${orderId} ignored: product mismatch`);
-      //   return res.status(202).json({ status: 'ignored', reason: 'product_mismatch' });
-      // }
+      if (!containsTargetProduct) {
+        console.log(`Order ${orderId} ignored: product mismatch`);
+        return res.status(202).json({ status: 'ignored', reason: 'product_mismatch' });
+      }
 
       const financialStatus = orderPayload.financial_status?.toLowerCase?.();
       const cancelledAt = orderPayload.cancelled_at ?? orderPayload.cancelledAt ?? null;
@@ -239,16 +239,16 @@ app.use(helmet({
 
       const showroomLink = `https://blockschmiede.com/showroom.html?token=${encodeURIComponent(token)}`;
 
-const subject = 'Blockschmiede Adventskalender – Dein Showroom-Zugang';
-const introText =
-  'Mit diesem Zugang erhältst du exklusiven Zugriff auf den Blockschmiede Adventskalender Showroom. Dort findest du besondere Inhalte wie deine individuelle Kalendernummer für die Verlosungen sowie eine hochauflösende Grafik des Adventskalenders – perfekt geeignet für den Druck.';
+      const subject = 'Blockschmiede Adventskalender – Dein Showroom-Zugang';
+      const introText =
+        'Mit diesem Zugang erhältst du exklusiven Zugriff auf den Blockschmiede Adventskalender Showroom. Dort findest du besondere Inhalte wie deine individuelle Kalendernummer für die Verlosungen sowie eine hochauflösende Grafik des Adventskalenders – perfekt geeignet für den Druck.';
 
-await mailTransport.sendMail({
-  from: config.mail.from,
-  to: recipient,
-  subject,
-  text: `${subject}\n\n${introText}\n\nDein persönlicher Zugangscode: ${token}\n\nZum Showroom: ${showroomLink}`,
-  html: `
+      await mailTransport.sendMail({
+        from: config.mail.from,
+        to: recipient,
+        subject,
+        text: `${subject}\n\n${introText}\n\nDein persönlicher Zugangscode: ${token}\n\nZum Showroom: ${showroomLink}`,
+        html: `
     <div style="font-family: Arial, sans-serif; color: #222; line-height: 1.6;">
       <h1 style="color: #b22222;">🎁 ${subject}</h1>
       <p>${introText}</p>
@@ -283,7 +283,7 @@ await mailTransport.sendMail({
       </p>
     </div>
   `,
-});
+      });
 
 
       return res.status(201).json({ status: 'stored', token });
@@ -307,7 +307,7 @@ await mailTransport.sendMail({
       }
 
       const connection = await pool.getConnection();
-      
+
       try {
         const [rows] = await connection.execute(
           'SELECT id, order_id, order_number, email, customer_first_name, customer_last_name FROM shopify_order_emails WHERE token = ? LIMIT 1',
@@ -319,9 +319,9 @@ await mailTransport.sendMail({
         }
 
         const orderData = rows[0];
-        
+
         // Generate calendar number based on order_id
-        
+
 
         return res.status(200).json({
           kalendernummer: orderData.id,
