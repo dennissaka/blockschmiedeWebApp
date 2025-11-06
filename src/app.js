@@ -28,8 +28,8 @@ const createApp = () => {
     legacyHeaders: false,
   }));
 
-  app.use(express.json({ limit: '10kb', strict: true }));
-  app.use(express.urlencoded({ extended: false, limit: '10kb' }));
+  app.use(express.json({ limit: '10mb', strict: true }));
+  app.use(express.urlencoded({ extended: false, limit: '10mb' }));
   app.use(hpp());
 
   app.use((req, res, next) => {
