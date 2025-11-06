@@ -1,0 +1,44 @@
+POST https://dev.infinity-impact.com/blockschmiede/api/orders
+Content-Type: application/json
+
+{
+  "id": 1234567891,
+  "order_number": "#1003",
+  "created_at": "2025-11-06T10:15:00Z",
+  "email": "kunde@example.com",
+  "customer": {
+    "first_name": "Max",
+    "last_name": "Muster",
+    "email": "kunde@example.com"
+  },
+  "line_items": [
+    {
+      "id": 987654321,
+      "title": "Blockschmiede Card",
+      "quantity": 1,
+      "price": "49.00",
+      "sku": "BS-CARD-001"
+    }
+  ],
+  "shipping_address": {
+    "first_name": "Max",
+    "last_name": "Muster",
+    "address1": "Musterstraße 12",
+    "city": "Steinheim",
+    "zip": "89555",
+    "country": "Germany"
+  },
+  "billing_address": {
+    "first_name": "Max",
+    "last_name": "Muster",
+    "address1": "Musterstraße 12",
+    "city": "Steinheim",
+    "zip": "89555",
+    "country": "Germany"
+  },
+  "total_price": "49.00",
+  "currency": "EUR",
+  "financial_status": "paid",
+  "fulfillment_status": null,
+  "note": "Testbestellung aus Shopify"
+}

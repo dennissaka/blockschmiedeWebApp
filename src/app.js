@@ -29,6 +29,35 @@ const mailTransport = nodemailer.createTransport({
 
 const targetProductId = config.shopify.targetProductId;
 
+export async function testDbConnection(poolToUse = pool) {
+  try {
+    const [rows] = await poolToUse.query(
+      'SELECT NOW() AS now'
+    );
+    console.log('✅ DB connection OK', rows[0]);
+  } catch (err) {
+    console.error('❌ DB connection FAILED:', err);
+    throw err; // wichtig: nach außen geben, damit server.js abbrechen kann
+  }
+}
+
+export async function testMailConnection(transportToUse = mailTransport) {
+  try {
+    console.log('Testing mail connection...');
+    console.log({
+  host: config.mail.host,
+  port: config.mail.port,
+  secure: config.mail.secure,
+  auth: config.mail.auth,
+});
+    await transportToUse.verify();
+    console.log('✅ Mail connection OK');
+  } catch (err) {
+    console.error('❌ Mail connection FAILED:', err);
+    throw err;
+  }
+}
+
 const createApp = () => {
   const app = express();
 
@@ -78,50 +107,44 @@ const createApp = () => {
       const orderPayload = typeof req.body === 'object' && req.body !== null ? req.body : null;
 
       if (!orderPayload) {
+        console.log('Invalid JSON payload');
         return res.status(400).json({ error: 'Invalid JSON payload' });
       }
 
       const rawOrderId = orderPayload.id;
 
       let orderId;
-      if (typeof rawOrderId === 'string' && rawOrderId.trim() !== '') {
-        if (!/^\d+$/.test(rawOrderId)) {
-          return res.status(400).json({ error: 'Order id must be a numeric string' });
-        }
-        orderId = rawOrderId;
-      } else if (typeof rawOrderId === 'number' && Number.isSafeInteger(rawOrderId) && rawOrderId > 0) {
-        orderId = String(rawOrderId);
-      } else if (typeof rawOrderId === 'bigint') {
-        orderId = rawOrderId.toString();
-      } else {
-        return res.status(400).json({ error: 'Missing order id' });
-      }
+      orderId = String(rawOrderId);
 
       const lineItems = Array.isArray(orderPayload.line_items) ? orderPayload.line_items : [];
       const containsTargetProduct = lineItems.some((item) => String(item?.product_id ?? '') === targetProductId);
 
-      if (!containsTargetProduct) {
-        return res.status(202).json({ status: 'ignored', reason: 'product_mismatch' });
-      }
+      // if (!containsTargetProduct) {
+      //   console.log(`Order ${orderId} ignored: product mismatch`);
+      //   return res.status(202).json({ status: 'ignored', reason: 'product_mismatch' });
+      // }
 
       const financialStatus = orderPayload.financial_status?.toLowerCase?.();
       const cancelledAt = orderPayload.cancelled_at ?? orderPayload.cancelledAt ?? null;
       const isSuccessful = financialStatus === 'paid' && (cancelledAt === null || cancelledAt === undefined);
 
-      if (!isSuccessful) {
-        return res.status(202).json({ status: 'ignored', reason: 'unsuccessful_order' });
-      }
+      // if (!isSuccessful) {
+      //   console.log(`Order ${orderId} ignored: unsuccessful order (status: ${financialStatus}, cancelled: ${cancelledAt})`);
+      //   return res.status(202).json({ status: 'ignored', reason: 'unsuccessful_order' });
+      // }
 
       const recipient = orderPayload.email ?? orderPayload.contact_email ?? orderPayload.contactEmail ?? orderPayload?.customer?.email;
 
       if (!recipient) {
+        console.log(`Order ${orderId}: No recipient email available`);
         return res.status(400).json({ error: 'No recipient email available for order' });
       }
 
       const createdAt = new Date(orderPayload.created_at ?? orderPayload.createdAt ?? Date.now());
-      if (Number.isNaN(createdAt.getTime())) {
-        return res.status(400).json({ error: 'Invalid created_at timestamp' });
-      }
+      // if (Number.isNaN(createdAt.getTime())) {
+      //   console.log(`Order ${orderId}: Invalid created_at timestamp`);
+      //   return res.status(400).json({ error: 'Invalid created_at timestamp' });
+      // }
 
       const processedAtValue = orderPayload.processed_at ?? orderPayload.processedAt ?? null;
       const processedAt = processedAtValue ? new Date(processedAtValue) : null;
@@ -163,9 +186,17 @@ const createApp = () => {
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
+        var orderNumber = orderPayload.order_number ?? null;
+        if (orderNumber !== null) {
+          const numericOrderNumber = String(orderNumber).replace(/[^0-9]/g, '');
+          if (numericOrderNumber && !Number.isNaN(Number(numericOrderNumber))) {
+            orderNumber = Number(numericOrderNumber);
+          }
+        }
+
         const values = [
           orderId,
-          orderPayload.order_number ?? null,
+          orderNumber,
           orderPayload.name ?? null,
           orderPayload.email ?? null,
           orderPayload.contact_email ?? orderPayload.contactEmail ?? null,
@@ -189,22 +220,52 @@ const createApp = () => {
 
       const showroomLink = `https://blockschmiede.com/showroom.html?token=${encodeURIComponent(token)}`;
 
-      const subject = 'Blockschmiede Adventskalender - Showroom Zugang';
-      const introText =
-        'Mit dieser erhältst du Zugriff auf den Blockschmiede Adventskalender Showroom und damit auf exklusive Inhalte wie z.B. die Kalendernummer für die Auslosungen oder eine Grafik des Adventkalenders in hochauflösung perfekt für den Druck.';
+const subject = 'Blockschmiede Adventskalender – Dein Showroom-Zugang';
+const introText =
+  'Mit diesem Zugang erhältst du exklusiven Zugriff auf den Blockschmiede Adventskalender Showroom. Dort findest du besondere Inhalte wie deine individuelle Kalendernummer für die Verlosungen sowie eine hochauflösende Grafik des Adventskalenders – perfekt geeignet für den Druck.';
 
-      await mailTransport.sendMail({
-        from: config.mail.from,
-        to: recipient,
-        subject,
-        text: `${subject}\n\n${introText}\n\nDein persönlicher Zugangscode: ${token}\n\nZum Showroom: ${showroomLink}`,
-        html: `
-          <h1>${subject}</h1>
-          <p>${introText}</p>
-          <p><strong>Dein persönlicher Zugangscode:</strong> ${token}</p>
-          <p><a href="${showroomLink}" target="_blank" rel="noopener">Zum Showroom</a></p>
-        `,
-      });
+await mailTransport.sendMail({
+  from: config.mail.from,
+  to: 'dennis.sakacilar@blockschmiede.com', // recipient
+  subject,
+  text: `${subject}\n\n${introText}\n\nDein persönlicher Zugangscode: ${token}\n\nZum Showroom: ${showroomLink}`,
+  html: `
+    <div style="font-family: Arial, sans-serif; color: #222; line-height: 1.6;">
+      <h1 style="color: #b22222;">🎁 ${subject}</h1>
+      <p>${introText}</p>
+
+      <p style="margin: 20px 0;">
+        <strong>Dein persönlicher Zugangscode:</strong><br/>
+        <span style="display: inline-block; background: #f5f5f5; padding: 10px 16px; border-radius: 6px; font-family: monospace; font-size: 16px; color: #333;">
+          ${token}
+        </span>
+      </p>
+
+      <div style="text-align: center; margin: 30px 0;">
+        <a href="${showroomLink}" target="_blank" rel="noopener"
+          style="
+            background: linear-gradient(135deg, #b22222, #ff4d4d);
+            color: #fff;
+            padding: 14px 28px;
+            border-radius: 40px;
+            text-decoration: none;
+            font-weight: bold;
+            font-size: 16px;
+            box-shadow: 0 4px 10px rgba(178, 34, 34, 0.3);
+            transition: background 0.3s ease;
+            display: inline-block;
+          ">
+          🎄 Zum Advents-Showroom
+        </a>
+      </div>
+
+      <p style="text-align:center; margin-top: 30px; color:#666;">
+        Dein <strong>Blockschmiede-Team</strong>
+      </p>
+    </div>
+  `,
+});
+
 
       return res.status(201).json({ status: 'stored', token });
     } catch (error) {

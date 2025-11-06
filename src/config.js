@@ -37,7 +37,6 @@ if (parsedPort <= 0) {
 }
 
 const dbPort = optionalEnv('DB_PORT', '3306');
-const smtpPort = optionalEnv('SMTP_PORT', '587');
 
 export const config = Object.freeze({
   port: parsedPort,
@@ -49,15 +48,19 @@ export const config = Object.freeze({
     password: requireEnv('DB_PASSWORD'),
     name: requireEnv('DB_NAME'),
   },
-  mail: {
-    host: requireEnv('SMTP_HOST'),
-    port: parseInteger(smtpPort, 'SMTP_PORT'),
-    secure: parseBoolean(optionalEnv('SMTP_SECURE', 'false')),
+mail: {
+    host: optionalEnv('SMTP_HOST', 'host282.checkdomain.de'),
+    port: parseInteger(optionalEnv('SMTP_PORT', '465'), 'SMTP_PORT'),
+    secure: parseBoolean(optionalEnv('SMTP_SECURE', 'true')),
     auth: {
-      user: requireEnv('SMTP_USER'),
+      user: requireEnv('SMTP_USER'),       // vollständige E-Mail-Adresse
       pass: requireEnv('SMTP_PASSWORD'),
     },
     from: requireEnv('MAIL_FROM'),
+    tls: {
+      minVersion: optionalEnv('SMTP_TLS_MIN_VERSION', 'TLSv1.2'),
+      rejectUnauthorized: parseBoolean(optionalEnv('SMTP_TLS_REJECT_UNAUTHORIZED', 'true')),
+    },
   },
   shopify: {
     targetProductId: optionalEnv('SHOPIFY_TARGET_PRODUCT_ID', '10351253356877'),
