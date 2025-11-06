@@ -9,6 +9,12 @@ import mysql from 'mysql2/promise';
 import crypto from 'node:crypto';
 import { config } from './config.js';
 
+const allowedOrigins = new Set([
+  'https://blockschmiede.com',
+  'https://www.blockschmiede.com',
+]);
+
+
 const pool = mysql.createPool({
   host: config.database.host,
   port: config.database.port,
@@ -64,15 +70,28 @@ const createApp = () => {
   app.disable('x-powered-by');
   app.set('trust proxy', 1);
 
-  app.use(helmet({
-    crossOriginResourcePolicy: { policy: 'same-origin' },
+app.use(helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
   }));
 
-  app.use(cors({
-    origin: false,
-    methods: ['POST'],
+  // 2) CORS-Options
+  const corsOptions = {
+    origin(origin, cb) {
+      // Ohne Origin (z.B. curl/Postman) keine CORS-Header — ok für Browser-Schutz.
+      if (!origin) return cb(null, false);
+      return cb(null, allowedOrigins.has(origin) ? origin : false);
+    },
+    // Falls du Cookies/Session brauchst → auf true stellen und Client mit credentials: 'include' aufrufen.
+    credentials: false,
+    methods: ['POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    maxAge: 86400, // Preflight cachen
     optionsSuccessStatus: 204,
-  }));
+  };
+
+  // 3) CORS Middlewares: globale Header + Preflight beantworten
+  app.use(cors(corsOptions));
+  app.options('*', cors(corsOptions)); // beantwortet OPTIONS vor deinen Routen
 
   app.use(rateLimit({
     windowMs: 60 * 1000,
@@ -226,7 +245,7 @@ const introText =
 
 await mailTransport.sendMail({
   from: config.mail.from,
-  to: 'dennis.sakacilar@blockschmiede.com', // recipient
+  to: recipient,
   subject,
   text: `${subject}\n\n${introText}\n\nDein persönlicher Zugangscode: ${token}\n\nZum Showroom: ${showroomLink}`,
   html: `
@@ -277,6 +296,56 @@ await mailTransport.sendMail({
   app.all('/api/orders', (_req, res) => {
     res.set('Allow', 'POST');
     return res.status(405).json({ error: 'Method Not Allowed' });
+  });
+
+  app.post('/api/login', async (req, res) => {
+    try {
+      const { token } = req.body;
+
+      if (!token) {
+        return res.status(400).json({ error: 'Token is required' });
+      }
+
+      const connection = await pool.getConnection();
+      
+      try {
+        const [rows] = await connection.execute(
+          'SELECT id, order_id, order_number, email, customer_first_name, customer_last_name FROM shopify_order_emails WHERE token = ? LIMIT 1',
+          [token]
+        );
+
+        if (!Array.isArray(rows) || rows.length === 0) {
+          return res.status(401).json({ error: 'Invalid token' });
+        }
+
+        const orderData = rows[0];
+        
+        // Generate calendar number based on order_id
+        
+
+        return res.status(200).json({
+          kalendernummer: orderData.id,
+          orderNumber: orderData.order_number,
+          email: orderData.email,
+          firstName: orderData.customer_first_name,
+          lastName: orderData.customer_last_name
+        });
+
+      } finally {
+        connection.release();
+      }
+
+    } catch (error) {
+      console.error('Login error:', error);
+      return res.status(500).json({ error: 'Internal Server Error' });
+    }
+  });
+
+  app.all('/api/login', (req, res) => {
+    if (req.method !== 'POST') {
+      res.set('Allow', 'POST');
+      return res.status(405).json({ error: 'Method Not Allowed' });
+    }
   });
 
   app.use((req, res) => {
