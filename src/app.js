@@ -83,24 +83,36 @@ const createShowroomEmailContent = (tokens) => {
     )
     .join('');
 
-  const html = `
-    <div style="font-family: Arial, sans-serif; color: #222; line-height: 1.6;">
-      <h1 style="color: #b22222;">🎁 ${subject}</h1>
-      <p>${introText}</p>
+const html = `
+  <div style="font-family: Arial, sans-serif; color: #222; line-height: 1.6;">
+    <h1 style="color: #b22222; margin: 0 0 12px;">🎁 ${subject}</h1>
+    <p style="margin: 0 0 16px;">${introText}</p>
 
-      <p><strong>${tokenLabel}:</strong></p>
-      <ol style="padding-left: 18px;">${tokensListHtml}</ol>
+    <p style="margin: 16px 0 6px;"><strong>${tokenLabel}:</strong></p>
+    <ol style="padding-left: 18px; margin: 0 0 16px;">${tokensListHtml}</ol>
 
-      <p style="margin-top: 20px;">
-        Viel Freude beim Entdecken und viel Glück bei den Verlosungen!
-      </p>
+    <p style="margin-top: 20px;">
+      Viel Freude beim Entdecken und viel Glück bei den Verlosungen!
+    </p>
 
-      <p style="text-align:center; margin-top: 30px; color:#666;">
-        Dein <strong>Blockschmiede-Team</strong>
-      </p>
-    </div>
-  `;
+    <hr style="margin: 30px 0; border: 0; border-top: 1px solid #ddd;">
 
+    <p style="font-size: 0.9em; color:#555; margin: 0 0 10px;">
+      <strong>Hinweis zu digitalen Inhalten:</strong><br>
+      Mit dieser E-Mail beginnt die Bereitstellung deines digitalen Adventskalenders.
+    </p>
+
+    <p style="font-size: 0.9em; color:#555; margin: 0;">
+      Unsere <a href="https://shop.blockschmiede.com/policies/terms-of-service" style="color:#b22222;">AGB</a> und
+      <a href="https://shop.blockschmiede.com/policies/refund-policy" style="color:#b22222;">Widerrufsbelehrung</a>
+      findest du jederzeit online.
+    </p>
+
+    <p style="text-align:center; margin-top: 30px; color:#666;">
+      Dein <strong>Blockschmiede-Team</strong>
+    </p>
+  </div>
+`;
   const text = `${subject}\n\n${introText}\n\n${tokenLabel}:\n${tokensListText}\n\nViel Freude beim Entdecken und viel Glück bei den Verlosungen!\n\nDein Blockschmiede-Team`;
 
   return { subject, introText, html, text, tokensWithLinks };
