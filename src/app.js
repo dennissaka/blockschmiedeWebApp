@@ -385,61 +385,61 @@ const createApp = () => {
     return res.status(405).json({ error: 'Method Not Allowed' });
   });
 
-  app.post('/api/showroom-mails/:email/send', async (req, res) => {
-    const { email } = req.params;
+  // app.post('/api/showroom-mails/:email/send', async (req, res) => {
+  //   const { email } = req.params;
 
-    if (!email || typeof email !== 'string') {
-      return res.status(400).json({ error: 'Invalid email parameter' });
-    }
+  //   if (!email || typeof email !== 'string') {
+  //     return res.status(400).json({ error: 'Invalid email parameter' });
+  //   }
 
-    const decodedEmail = decodeURIComponent(email);
+  //   const decodedEmail = decodeURIComponent(email);
 
-    const connection = await pool.getConnection();
+  //   const connection = await pool.getConnection();
 
-    try {
-      const [entries] = await connection.execute(
-        `SELECT id, order_id, email, contact_email, customer_email, token
-         FROM shopify_order_emails
-         WHERE email = ? OR contact_email = ? OR customer_email = ?
-         ORDER BY id ASC`,
-        [decodedEmail, decodedEmail, decodedEmail],
-      );
+  //   try {
+  //     const [entries] = await connection.execute(
+  //       `SELECT id, order_id, email, contact_email, customer_email, token
+  //        FROM shopify_order_emails
+  //        WHERE email = ? OR contact_email = ? OR customer_email = ?
+  //        ORDER BY id ASC`,
+  //       [decodedEmail, decodedEmail, decodedEmail],
+  //     );
 
-      if (!Array.isArray(entries) || entries.length === 0) {
-        return res.status(404).json({ error: 'No entries found for this email' });
-      }
+  //     if (!Array.isArray(entries) || entries.length === 0) {
+  //       return res.status(404).json({ error: 'No entries found for this email' });
+  //     }
 
-      const recipient = determinePreferredRecipient(
-        entries[0].email,
-        entries[0].contact_email,
-        entries[0].customer_email,
-      );
+  //     const recipient = determinePreferredRecipient(
+  //       entries[0].email,
+  //       entries[0].contact_email,
+  //       entries[0].customer_email,
+  //     );
 
-      if (!recipient) {
-        return res.status(409).json({ error: 'No recipient email stored for these entries' });
-      }
+  //     if (!recipient) {
+  //       return res.status(409).json({ error: 'No recipient email stored for these entries' });
+  //     }
 
-      const tokens = entries
-        .map((entry) => entry.token)
-        .filter((token) => typeof token === 'string');
+  //     const tokens = entries
+  //       .map((entry) => entry.token)
+  //       .filter((token) => typeof token === 'string');
 
-      if (tokens.length === 0) {
-        return res.status(409).json({ error: 'No tokens available for this email' });
-      }
+  //     if (tokens.length === 0) {
+  //       return res.status(409).json({ error: 'No tokens available for this email' });
+  //     }
 
-      await sendShowroomEmail({ recipient, tokens });
+  //     await sendShowroomEmail({ recipient, tokens });
 
-      return res.status(200).json({
-        status: 'sent',
-        tokensCount: tokens.length,
-      });
-    } catch (error) {
-      console.error('Manual showroom mail error:', error);
-      return res.status(500).json({ error: 'Internal Server Error' });
-    } finally {
-      connection.release();
-    }
-  });
+  //     return res.status(200).json({
+  //       status: 'sent',
+  //       tokensCount: tokens.length,
+  //     });
+  //   } catch (error) {
+  //     console.error('Manual showroom mail error:', error);
+  //     return res.status(500).json({ error: 'Internal Server Error' });
+  //   } finally {
+  //     connection.release();
+  //   }
+  // });
 
   app.post('/api/login', async (req, res) => {
     try {
