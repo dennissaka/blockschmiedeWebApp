@@ -33,6 +33,95 @@ const mailTransport = nodemailer.createTransport({
   auth: config.mail.auth,
 });
 
+const showroomBaseUrl = 'https://blockschmiede.com/showroom.html';
+
+const determinePreferredRecipient = (email, contactEmail, customerEmail) =>
+  email ?? contactEmail ?? customerEmail ?? null;
+
+const createShowroomEmailContent = (tokens) => {
+  const subject = 'Blockschmiede Adventskalender – Dein Showroom-Zugang';
+  const introText =
+    'Mit diesem Zugang erhältst du exklusiven Zugriff auf den Blockschmiede Adventskalender Showroom. Dort findest du besondere Inhalte wie deine individuelle Kalendernummer für die Verlosungen sowie eine hochauflösende Grafik des Adventskalenders – perfekt geeignet für den Druck.';
+
+  const tokensWithLinks = tokens.map((token) => ({
+    token,
+    link: `${showroomBaseUrl}?token=${encodeURIComponent(token)}`,
+  }));
+
+  const tokenLabel =
+    tokens.length > 1 ? 'Deine persönlichen Zugangscodes' : 'Dein persönlicher Zugangscode';
+
+  const tokensListText = tokensWithLinks
+    .map(
+      ({ token, link }, index) =>
+        `${index + 1}. Token: ${token}\n   Link: ${link}`,
+    )
+    .join('\n\n');
+
+  const tokensListHtml = tokensWithLinks
+    .map(
+      ({ token, link }, index) => `
+        <li style="margin-bottom: 12px;">
+          <strong>Token ${index + 1}:</strong><br/>
+          <span
+            style="display: inline-block; background: #f5f5f5; padding: 10px 16px; border-radius: 6px; font-family: monospace; font-size: 16px; color: #333; margin: 8px 0;"
+          >
+            ${token}
+          </span>
+          <div>
+            <a
+              href="${link}"
+              target="_blank"
+              rel="noopener"
+              style="color: #b22222; font-weight: bold; text-decoration: none;"
+            >
+              👉 Direkt zum Showroom
+            </a>
+          </div>
+        </li>
+      `,
+    )
+    .join('');
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; color: #222; line-height: 1.6;">
+      <h1 style="color: #b22222;">🎁 ${subject}</h1>
+      <p>${introText}</p>
+
+      <p><strong>${tokenLabel}:</strong></p>
+      <ol style="padding-left: 18px;">${tokensListHtml}</ol>
+
+      <p style="margin-top: 20px;">
+        Viel Freude beim Entdecken und viel Glück bei den Verlosungen!
+      </p>
+
+      <p style="text-align:center; margin-top: 30px; color:#666;">
+        Dein <strong>Blockschmiede-Team</strong>
+      </p>
+    </div>
+  `;
+
+  const text = `${subject}\n\n${introText}\n\n${tokenLabel}:\n${tokensListText}\n\nViel Freude beim Entdecken und viel Glück bei den Verlosungen!\n\nDein Blockschmiede-Team`;
+
+  return { subject, introText, html, text, tokensWithLinks };
+};
+
+const sendShowroomEmail = async ({ recipient, tokens }) => {
+  if (!recipient || !Array.isArray(tokens) || tokens.length === 0) {
+    throw new Error('Cannot send showroom email without recipient or tokens');
+  }
+
+  const { subject, text, html } = createShowroomEmailContent(tokens);
+
+  await mailTransport.sendMail({
+    from: config.mail.from,
+    to: recipient,
+    subject,
+    text,
+    html,
+  });
+};
+
 const targetProductId = config.shopify.targetProductId;
 
 export async function testDbConnection(poolToUse = pool) {
@@ -136,9 +225,20 @@ const createApp = () => {
       orderId = String(rawOrderId);
 
       const lineItems = Array.isArray(orderPayload.line_items) ? orderPayload.line_items : [];
-      const containsTargetProduct = lineItems.some((item) => String(item?.product_id ?? '') === targetProductId);
+      const matchingLineItems = lineItems.filter(
+        (item) => String(item?.product_id ?? '') === targetProductId,
+      );
 
-      if (!containsTargetProduct) {
+      const totalTargetQuantity = matchingLineItems.reduce((sum, item) => {
+        const rawQuantity = item?.quantity ?? 1;
+        const parsedQuantity = Number.parseInt(rawQuantity, 10);
+        if (Number.isInteger(parsedQuantity) && parsedQuantity > 0) {
+          return sum + parsedQuantity;
+        }
+        return sum + 1;
+      }, 0);
+
+      if (totalTargetQuantity <= 0) {
         console.log(`Order ${orderId} ignored: product mismatch`);
         return res.status(202).json({ status: 'ignored', reason: 'product_mismatch' });
       }
@@ -147,12 +247,16 @@ const createApp = () => {
       const cancelledAt = orderPayload.cancelled_at ?? orderPayload.cancelledAt ?? null;
       const isSuccessful = financialStatus === 'paid' && (cancelledAt === null || cancelledAt === undefined);
 
-      // if (!isSuccessful) {
-      //   console.log(`Order ${orderId} ignored: unsuccessful order (status: ${financialStatus}, cancelled: ${cancelledAt})`);
-      //   return res.status(202).json({ status: 'ignored', reason: 'unsuccessful_order' });
-      // }
+      if (!isSuccessful) {
+         console.log(`Order ${orderId} ignored: unsuccessful order (status: ${financialStatus}, cancelled: ${cancelledAt})`);
+         return res.status(202).json({ status: 'ignored', reason: 'unsuccessful_order' });
+      }
 
-      const recipient = orderPayload.email ?? orderPayload.contact_email ?? orderPayload.contactEmail ?? orderPayload?.customer?.email;
+      const recipient = determinePreferredRecipient(
+        orderPayload.email,
+        orderPayload.contact_email ?? orderPayload.contactEmail,
+        orderPayload?.customer?.email,
+      );
 
       if (!recipient) {
         console.log(`Order ${orderId}: No recipient email available`);
@@ -170,19 +274,27 @@ const createApp = () => {
       const cancelledAtDate = cancelledAt ? new Date(cancelledAt) : null;
 
       const connection = await pool.getConnection();
-      let token;
+      const createdTokens = [];
+      let tokensForOrder = [];
 
       try {
         const [existingOrders] = await connection.execute(
-          'SELECT token FROM shopify_order_emails WHERE order_id = ? LIMIT 1',
+          'SELECT token FROM shopify_order_emails WHERE order_id = ? ORDER BY id ASC',
           [orderId],
         );
 
-        if (Array.isArray(existingOrders) && existingOrders.length > 0) {
-          return res.status(200).json({ status: 'already_processed' });
-        }
+        tokensForOrder = Array.isArray(existingOrders)
+          ? existingOrders.map((row) => row.token).filter((token) => typeof token === 'string')
+          : [];
 
-        token = crypto.randomBytes(48).toString('hex');
+        const insertsNeeded = Math.max(totalTargetQuantity - tokensForOrder.length, 0);
+
+        if (insertsNeeded === 0) {
+          return res.status(200).json({
+            status: 'already_processed',
+            tokens: tokensForOrder,
+          });
+        }
 
         const insertQuery = `
           INSERT INTO shopify_order_emails (
@@ -205,7 +317,7 @@ const createApp = () => {
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
-        var orderNumber = orderPayload.order_number ?? null;
+        let orderNumber = orderPayload.order_number ?? null;
         if (orderNumber !== null) {
           const numericOrderNumber = String(orderNumber).replace(/[^0-9]/g, '');
           if (numericOrderNumber && !Number.isNaN(Number(numericOrderNumber))) {
@@ -213,80 +325,43 @@ const createApp = () => {
           }
         }
 
-        const values = [
-          orderId,
-          orderNumber,
-          orderPayload.name ?? null,
-          orderPayload.email ?? null,
-          orderPayload.contact_email ?? orderPayload.contactEmail ?? null,
-          orderPayload?.customer?.email ?? null,
-          token,
-          orderPayload?.customer?.first_name ?? orderPayload?.customer?.firstName ?? null,
-          orderPayload?.customer?.last_name ?? orderPayload?.customer?.lastName ?? null,
-          orderPayload?.billing_address?.name ?? null,
-          orderPayload?.shipping_address?.name ?? null,
-          createdAt,
-          processedAt && !Number.isNaN(processedAt.getTime()) ? processedAt : null,
-          cancelledAtDate && !Number.isNaN(cancelledAtDate.getTime()) ? cancelledAtDate : null,
-          orderPayload.financial_status ?? null,
-          Boolean(orderPayload.test),
-        ];
+        for (let i = 0; i < insertsNeeded; i += 1) {
+          const token = crypto.randomBytes(48).toString('hex');
+          tokensForOrder.push(token);
+          createdTokens.push(token);
 
-        await connection.execute(insertQuery, values);
+          const values = [
+            orderId,
+            orderNumber,
+            orderPayload.name ?? null,
+            orderPayload.email ?? null,
+            orderPayload.contact_email ?? orderPayload.contactEmail ?? null,
+            orderPayload?.customer?.email ?? null,
+            token,
+            orderPayload?.customer?.first_name ?? orderPayload?.customer?.firstName ?? null,
+            orderPayload?.customer?.last_name ?? orderPayload?.customer?.lastName ?? null,
+            orderPayload?.billing_address?.name ?? null,
+            orderPayload?.shipping_address?.name ?? null,
+            createdAt,
+            processedAt && !Number.isNaN(processedAt.getTime()) ? processedAt : null,
+            cancelledAtDate && !Number.isNaN(cancelledAtDate.getTime()) ? cancelledAtDate : null,
+            orderPayload.financial_status ?? null,
+            Boolean(orderPayload.test),
+          ];
+
+          await connection.execute(insertQuery, values);
+        }
       } finally {
         connection.release();
       }
 
-      const showroomLink = `https://blockschmiede.com/showroom.html?token=${encodeURIComponent(token)}`;
+      await sendShowroomEmail({ recipient, tokens: tokensForOrder });
 
-      const subject = 'Blockschmiede Adventskalender – Dein Showroom-Zugang';
-      const introText =
-        'Mit diesem Zugang erhältst du exklusiven Zugriff auf den Blockschmiede Adventskalender Showroom. Dort findest du besondere Inhalte wie deine individuelle Kalendernummer für die Verlosungen sowie eine hochauflösende Grafik des Adventskalenders – perfekt geeignet für den Druck.';
-
-      await mailTransport.sendMail({
-        from: config.mail.from,
-        to: recipient,
-        subject,
-        text: `${subject}\n\n${introText}\n\nDein persönlicher Zugangscode: ${token}\n\nZum Showroom: ${showroomLink}`,
-        html: `
-    <div style="font-family: Arial, sans-serif; color: #222; line-height: 1.6;">
-      <h1 style="color: #b22222;">🎁 ${subject}</h1>
-      <p>${introText}</p>
-
-      <p style="margin: 20px 0;">
-        <strong>Dein persönlicher Zugangscode:</strong><br/>
-        <span style="display: inline-block; background: #f5f5f5; padding: 10px 16px; border-radius: 6px; font-family: monospace; font-size: 16px; color: #333;">
-          ${token}
-        </span>
-      </p>
-
-      <div style="text-align: center; margin: 30px 0;">
-        <a href="${showroomLink}" target="_blank" rel="noopener"
-          style="
-            background: linear-gradient(135deg, #b22222, #ff4d4d);
-            color: #fff;
-            padding: 14px 28px;
-            border-radius: 40px;
-            text-decoration: none;
-            font-weight: bold;
-            font-size: 16px;
-            box-shadow: 0 4px 10px rgba(178, 34, 34, 0.3);
-            transition: background 0.3s ease;
-            display: inline-block;
-          ">
-          🎄 Zum Advents-Showroom
-        </a>
-      </div>
-
-      <p style="text-align:center; margin-top: 30px; color:#666;">
-        Dein <strong>Blockschmiede-Team</strong>
-      </p>
-    </div>
-  `,
+      return res.status(201).json({
+        status: 'stored',
+        createdTokens,
+        totalTokens: tokensForOrder.length,
       });
-
-
-      return res.status(201).json({ status: 'stored', token });
     } catch (error) {
       console.error('Failed to process order payload', error);
       return next(error);
@@ -296,6 +371,62 @@ const createApp = () => {
   app.all('/api/orders', (_req, res) => {
     res.set('Allow', 'POST');
     return res.status(405).json({ error: 'Method Not Allowed' });
+  });
+
+  app.post('/api/showroom-mails/:email/send', async (req, res) => {
+    const { email } = req.params;
+
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ error: 'Invalid email parameter' });
+    }
+
+    const decodedEmail = decodeURIComponent(email);
+
+    const connection = await pool.getConnection();
+
+    try {
+      const [entries] = await connection.execute(
+        `SELECT id, order_id, email, contact_email, customer_email, token
+         FROM shopify_order_emails
+         WHERE email = ? OR contact_email = ? OR customer_email = ?
+         ORDER BY id ASC`,
+        [decodedEmail, decodedEmail, decodedEmail],
+      );
+
+      if (!Array.isArray(entries) || entries.length === 0) {
+        return res.status(404).json({ error: 'No entries found for this email' });
+      }
+
+      const recipient = determinePreferredRecipient(
+        entries[0].email,
+        entries[0].contact_email,
+        entries[0].customer_email,
+      );
+
+      if (!recipient) {
+        return res.status(409).json({ error: 'No recipient email stored for these entries' });
+      }
+
+      const tokens = entries
+        .map((entry) => entry.token)
+        .filter((token) => typeof token === 'string');
+
+      if (tokens.length === 0) {
+        return res.status(409).json({ error: 'No tokens available for this email' });
+      }
+
+      await sendShowroomEmail({ recipient, tokens });
+
+      return res.status(200).json({
+        status: 'sent',
+        tokensCount: tokens.length,
+      });
+    } catch (error) {
+      console.error('Manual showroom mail error:', error);
+      return res.status(500).json({ error: 'Internal Server Error' });
+    } finally {
+      connection.release();
+    }
   });
 
   app.post('/api/login', async (req, res) => {

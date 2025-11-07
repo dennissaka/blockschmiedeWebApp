@@ -1,0 +1,6 @@
+POST https://dev.infinity-impact.com/blockschmiede/api/showroom-mails/frank.linda@web.de/send
+Content-Type: application/json
+
+{
+
+}
