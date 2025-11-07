@@ -247,10 +247,10 @@ const createApp = () => {
       const cancelledAt = orderPayload.cancelled_at ?? orderPayload.cancelledAt ?? null;
       const isSuccessful = financialStatus === 'paid' && (cancelledAt === null || cancelledAt === undefined);
 
-      // if (!isSuccessful) {
-      //   console.log(`Order ${orderId} ignored: unsuccessful order (status: ${financialStatus}, cancelled: ${cancelledAt})`);
-      //   return res.status(202).json({ status: 'ignored', reason: 'unsuccessful_order' });
-      // }
+      if (!isSuccessful) {
+         console.log(`Order ${orderId} ignored: unsuccessful order (status: ${financialStatus}, cancelled: ${cancelledAt})`);
+         return res.status(202).json({ status: 'ignored', reason: 'unsuccessful_order' });
+      }
 
       const recipient = determinePreferredRecipient(
         orderPayload.email,
@@ -373,51 +373,46 @@ const createApp = () => {
     return res.status(405).json({ error: 'Method Not Allowed' });
   });
 
-  app.post('/api/showroom-mails/:id/send', async (req, res) => {
-    const { id } = req.params;
+  app.post('/api/showroom-mails/:email/send', async (req, res) => {
+    const { email } = req.params;
 
-    const parsedId = Number.parseInt(id, 10);
-    if (!Number.isInteger(parsedId) || parsedId <= 0) {
-      return res.status(400).json({ error: 'Invalid id parameter' });
+    if (!email || typeof email !== 'string') {
+      return res.status(400).json({ error: 'Invalid email parameter' });
     }
+
+    const decodedEmail = decodeURIComponent(email);
 
     const connection = await pool.getConnection();
 
     try {
       const [entries] = await connection.execute(
-        `SELECT id, order_id, email, contact_email, customer_email
+        `SELECT id, order_id, email, contact_email, customer_email, token
          FROM shopify_order_emails
-         WHERE id = ?
-         LIMIT 1`,
-        [parsedId],
+         WHERE email = ? OR contact_email = ? OR customer_email = ?
+         ORDER BY id ASC`,
+        [decodedEmail, decodedEmail, decodedEmail],
       );
 
       if (!Array.isArray(entries) || entries.length === 0) {
-        return res.status(404).json({ error: 'Entry not found' });
+        return res.status(404).json({ error: 'No entries found for this email' });
       }
 
-      const entry = entries[0];
       const recipient = determinePreferredRecipient(
-        entry.email,
-        entry.contact_email,
-        entry.customer_email,
+        entries[0].email,
+        entries[0].contact_email,
+        entries[0].customer_email,
       );
 
       if (!recipient) {
-        return res.status(409).json({ error: 'No recipient email stored for this entry' });
+        return res.status(409).json({ error: 'No recipient email stored for these entries' });
       }
 
-      const [orderTokensRows] = await connection.execute(
-        'SELECT token FROM shopify_order_emails WHERE order_id = ? ORDER BY id ASC',
-        [entry.order_id],
-      );
-
-      const tokens = Array.isArray(orderTokensRows)
-        ? orderTokensRows.map((row) => row.token).filter((token) => typeof token === 'string')
-        : [];
+      const tokens = entries
+        .map((entry) => entry.token)
+        .filter((token) => typeof token === 'string');
 
       if (tokens.length === 0) {
-        return res.status(409).json({ error: 'No tokens available for this order' });
+        return res.status(409).json({ error: 'No tokens available for this email' });
       }
 
       await sendShowroomEmail({ recipient, tokens });
