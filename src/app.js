@@ -106,6 +106,53 @@ const createShowroomEmailContent = (tokens) => {
   return { subject, introText, html, text, tokensWithLinks };
 };
 
+const createSupporterEmailContent = () => {
+  const subject = 'Einladung zum Blockschmiede YouTube-Livestream';
+
+  const text = `An alle Supporter !
+
+wir sind überglücklich wie sich die Weihnachtsaktion mit dem 1. Bitcoin Charity-Adventskalender entwickelt hat.
+Wir stehen aktuell bei knapp 150 verkauften Kalendern.
+Das ist irre und wäre ohne Dich überhaupt nicht möglich gewesen, dieser Support sucht seinesgleichen.
+Der Kalender ist noch bis einschließlich 30.11.2025 über unseren Shop erhältlich, falls Du also noch einen passenden Adventskalender für deine Liebsten suchst ….. zuschlagen !
+Jetzt geht es in die finale Phase, wir werden am kommenden Samstag, 29.11.2025 einen Live-Stream zum Kalender auf Youtube starten und dabei alles erklären.
+Hintergrundinformationen zur Aktion, Vorstellung Ablaufplan, Klärung offener Fragen aus der Community.
+
+Sehr gerne möchten wir Dich dazu recht herzlich einladen.
+ 
+Samstag, 29.11.2025 ab 14 Uhr
+ 
+Du findest uns auf Youtube unter: Blockschmiede21 oder du folgst einfach folgendem Link:
+
+https://m.youtube.com/@blockschmiede21
+
+Folge dem Kanal und aktiviere Benachrichtigungen, damit du diesen Stream und künftige Informationen nicht verpasst.
+
+
+Vielen lieben Dank für diesen unvergleichlichen Support
+ 
+Euer Blockschmiede-Team mit allen Sponsoren`;
+
+  const paragraphs = text
+    .split('\n\n')
+    .map(
+      (paragraph) =>
+        `<p style="margin: 12px 0; line-height: 1.5;">${paragraph
+          .replace(/\n/g, '<br/>')
+          .replace('\n ', '<br/>')}</p>`,
+    )
+    .join('');
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; color: #222;">
+      <h2 style="color: #b22222;">${subject}</h2>
+      ${paragraphs}
+    </div>
+  `;
+
+  return { subject, text, html };
+};
+
 const sendShowroomEmail = async ({ recipient, tokens }) => {
   if (!recipient || !Array.isArray(tokens) || tokens.length === 0) {
     throw new Error('Cannot send showroom email without recipient or tokens');
@@ -122,7 +169,48 @@ const sendShowroomEmail = async ({ recipient, tokens }) => {
   });
 };
 
+const sendSupporterMail = async (recipient) => {
+  if (!recipient) {
+    throw new Error('Cannot send supporter mail without recipient');
+  }
+
+  const { subject, text, html } = createSupporterEmailContent();
+
+  await mailTransport.sendMail({
+    from: config.mail.from,
+    to: recipient,
+    subject,
+    text,
+    html,
+  });
+};
+
 const targetProductId = config.shopify.targetProductId;
+
+const collectUniqueEmails = async (connection) => {
+  const [entries] = await connection.execute(
+    'SELECT email, contact_email, customer_email FROM shopify_order_emails',
+  );
+
+  const uniqueEmails = new Map();
+
+  entries.forEach((entry) => {
+    ['email', 'contact_email', 'customer_email'].forEach((key) => {
+      const rawEmail = entry?.[key];
+      if (typeof rawEmail !== 'string') return;
+
+      const trimmed = rawEmail.trim();
+      if (!trimmed) return;
+
+      const normalized = trimmed.toLowerCase();
+      if (!uniqueEmails.has(normalized)) {
+        uniqueEmails.set(normalized, trimmed);
+      }
+    });
+  });
+
+  return Array.from(uniqueEmails.values());
+};
 
 export async function testDbConnection(poolToUse = pool) {
   try {
@@ -423,6 +511,35 @@ const createApp = () => {
       });
     } catch (error) {
       console.error('Manual showroom mail error:', error);
+      return res.status(500).json({ error: 'Internal Server Error' });
+    } finally {
+      connection.release();
+    }
+  });
+
+  app.post('/api/supporter-mails/send', async (_req, res) => {
+    const connection = await pool.getConnection();
+
+    try {
+      const recipients = await collectUniqueEmails(connection);
+
+      if (recipients.length === 0) {
+        return res.status(404).json({ error: 'No email addresses available' });
+      }
+
+      let sentCount = 0;
+
+      for (const recipient of recipients) {
+        await sendSupporterMail(recipient);
+        sentCount += 1;
+      }
+
+      return res.status(200).json({
+        status: 'sent',
+        recipients: sentCount,
+      });
+    } catch (error) {
+      console.error('Supporter mail broadcast error:', error);
       return res.status(500).json({ error: 'Internal Server Error' });
     } finally {
       connection.release();
