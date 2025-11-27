@@ -1,6 +1,6 @@
 import { createServer } from 'http';
 import { config } from './config.js';
-import { createApp } from './app.js';
+import { createApp, sendSupporterBroadcast } from './app.js';
 import { testDbConnection, testMailConnection } from './app.js';
 
 // Frühe Startinfos
@@ -23,6 +23,13 @@ console.log('[boot] DB config (safe):', {
     server.listen(config.port, () => {
       console.log(`✅ Server listening on port ${config.port}`);
     });
+
+    try {
+      const { sent } = await sendSupporterBroadcast();
+      console.log(`[boot] Supporter mail broadcast sent to ${sent} recipients`);
+    } catch (err) {
+      console.error('[boot] Supporter mail broadcast failed:', err);
+    }
 
     // Graceful shutdown
     const shutdown = (signal) => {

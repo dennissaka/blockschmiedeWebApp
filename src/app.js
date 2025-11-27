@@ -185,6 +185,36 @@ const sendSupporterMail = async (recipient) => {
   });
 };
 
+export const sendSupporterBroadcast = async (
+  poolToUse = pool,
+  sender = sendSupporterMail,
+) => {
+  const connection = await poolToUse.getConnection();
+
+  try {
+    const recipients = await collectUniqueEmails(connection);
+
+    if (recipients.length === 0) {
+      console.warn('[supporter-mail] No email addresses available');
+      return { sent: 0, recipients };
+    }
+
+    let sentCount = 0;
+
+    for (const recipient of recipients) {
+      await sender(recipient);
+      sentCount += 1;
+    }
+
+    return { sent: sentCount, recipients };
+  } catch (error) {
+    console.error('[supporter-mail] Broadcast failed:', error);
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
 const targetProductId = config.shopify.targetProductId;
 
 const collectUniqueEmails = async (connection) => {
@@ -518,31 +548,20 @@ const createApp = () => {
   });
 
   app.post('/api/supporter-mails/send', async (_req, res) => {
-    const connection = await pool.getConnection();
-
     try {
-      const recipients = await collectUniqueEmails(connection);
+      const { sent } = await sendSupporterBroadcast();
 
-      if (recipients.length === 0) {
+      if (sent === 0) {
         return res.status(404).json({ error: 'No email addresses available' });
-      }
-
-      let sentCount = 0;
-
-      for (const recipient of recipients) {
-        await sendSupporterMail(recipient);
-        sentCount += 1;
       }
 
       return res.status(200).json({
         status: 'sent',
-        recipients: sentCount,
+        recipients: sent,
       });
     } catch (error) {
       console.error('Supporter mail broadcast error:', error);
       return res.status(500).json({ error: 'Internal Server Error' });
-    } finally {
-      connection.release();
     }
   });
 
