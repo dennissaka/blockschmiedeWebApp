@@ -27,6 +27,11 @@ const pool = mysql.createPool({
 });
 
 const mailTransport = nodemailer.createTransport({
+  pool: true,
+  maxConnections: 3,
+  maxMessages: 100,
+  rateDelta: 1000,
+  rateLimit: 5,
   host: config.mail.host,
   port: config.mail.port,
   secure: config.mail.secure,
@@ -185,11 +190,21 @@ const sendSupporterMail = async (recipient) => {
   });
 };
 
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const supporterBroadcastLock = { inProgress: false };
+
 export const sendSupporterBroadcast = async (
   poolToUse = pool,
   sender = sendSupporterMail,
+  throttleMs = 500,
 ) => {
+  if (supporterBroadcastLock.inProgress) {
+    throw new Error('Supporter broadcast already running');
+  }
+
+  supporterBroadcastLock.inProgress = true;
   const connection = await poolToUse.getConnection();
+  let connectionReleased = false;
 
   try {
     const recipients = await collectUniqueEmails(connection);
@@ -199,11 +214,18 @@ export const sendSupporterBroadcast = async (
       return { sent: 0, recipients };
     }
 
+    connection.release();
+    connectionReleased = true;
+
     let sentCount = 0;
 
     for (const recipient of recipients) {
       await sender(recipient);
       sentCount += 1;
+
+      if (throttleMs > 0) {
+        await delay(throttleMs);
+      }
     }
 
     return { sent: sentCount, recipients };
@@ -211,7 +233,10 @@ export const sendSupporterBroadcast = async (
     console.error('[supporter-mail] Broadcast failed:', error);
     throw error;
   } finally {
-    connection.release();
+    supporterBroadcastLock.inProgress = false;
+    if (!connectionReleased && connection && connection.release) {
+      connection.release();
+    }
   }
 };
 
