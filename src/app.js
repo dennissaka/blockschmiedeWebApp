@@ -27,6 +27,11 @@ const pool = mysql.createPool({
 });
 
 const mailTransport = nodemailer.createTransport({
+  pool: true,
+  maxConnections: 3,
+  maxMessages: 100,
+  rateDelta: 1000,
+  rateLimit: 5,
   host: config.mail.host,
   port: config.mail.port,
   secure: config.mail.secure,
@@ -106,6 +111,41 @@ const createShowroomEmailContent = (tokens) => {
   return { subject, introText, html, text, tokensWithLinks };
 };
 
+const createSupporterEmailContent = () => {
+  const subject = 'Einladung zum Blockschmiede Twitch-Livestream';
+
+  const text = `Planänderung! 🔔
+Der Stream morgen um 14 Uhr findet nicht auf YouTube statt –
+sondern live auf Twitch: https://www.twitch.tv/blockschmiede21 🎥⚡️
+
+Wie laufen die 24 Tage des Bitcoin Charity Adventskalenders genau ab?
+Welche Überraschungen warten auf euch?
+Alle Infos gibt’s morgen im Stream.
+
+Bis morgen! 🧡
+ 
+Euer Blockschmiede-Team mit allen Sponsoren`;
+
+  const paragraphs = text
+    .split('\n\n')
+    .map(
+      (paragraph) =>
+        `<p style="margin: 12px 0; line-height: 1.5;">${paragraph
+          .replace(/\n/g, '<br/>')
+          .replace('\n ', '<br/>')}</p>`,
+    )
+    .join('');
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; color: #222;">
+      <h2 style="color: #b22222;">${subject}</h2>
+      ${paragraphs}
+    </div>
+  `;
+
+  return { subject, text, html };
+};
+
 const sendShowroomEmail = async ({ recipient, tokens }) => {
   if (!recipient || !Array.isArray(tokens) || tokens.length === 0) {
     throw new Error('Cannot send showroom email without recipient or tokens');
@@ -122,7 +162,98 @@ const sendShowroomEmail = async ({ recipient, tokens }) => {
   });
 };
 
+const sendSupporterMail = async (recipient) => {
+  if (!recipient) {
+    throw new Error('Cannot send supporter mail without recipient');
+  }
+
+  const { subject, text, html } = createSupporterEmailContent();
+
+  await mailTransport.sendMail({
+    from: config.mail.from,
+    to: recipient,
+    subject,
+    text,
+    html,
+  });
+};
+
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const supporterBroadcastLock = { inProgress: false };
+
+export const sendSupporterBroadcast = async (
+  poolToUse = pool,
+  sender = sendSupporterMail,
+  throttleMs = 500,
+) => {
+  if (supporterBroadcastLock.inProgress) {
+    throw new Error('Supporter broadcast already running');
+  }
+
+  supporterBroadcastLock.inProgress = true;
+  const connection = await poolToUse.getConnection();
+  let connectionReleased = false;
+
+  try {
+    const recipients = await collectUniqueEmails(connection);
+
+    if (recipients.length === 0) {
+      console.warn('[supporter-mail] No email addresses available');
+      return { sent: 0, recipients };
+    }
+
+    connection.release();
+    connectionReleased = true;
+
+    let sentCount = 0;
+
+    for (const recipient of recipients) {
+      await sender(recipient);
+      sentCount += 1;
+
+      if (throttleMs > 0) {
+        await delay(throttleMs);
+      }
+    }
+
+    return { sent: sentCount, recipients };
+  } catch (error) {
+    console.error('[supporter-mail] Broadcast failed:', error);
+    throw error;
+  } finally {
+    supporterBroadcastLock.inProgress = false;
+    if (!connectionReleased && connection && connection.release) {
+      connection.release();
+    }
+  }
+};
+
 const targetProductId = config.shopify.targetProductId;
+
+const collectUniqueEmails = async (connection) => {
+  const [entries] = await connection.execute(
+    'SELECT email, contact_email, customer_email FROM shopify_order_emails',
+  );
+
+  const uniqueEmails = new Map();
+
+  entries.forEach((entry) => {
+    ['email', 'contact_email', 'customer_email'].forEach((key) => {
+      const rawEmail = entry?.[key];
+      if (typeof rawEmail !== 'string') return;
+
+      const trimmed = rawEmail.trim();
+      if (!trimmed) return;
+
+      const normalized = trimmed.toLowerCase();
+      if (!uniqueEmails.has(normalized)) {
+        uniqueEmails.set(normalized, trimmed);
+      }
+    });
+  });
+
+  return Array.from(uniqueEmails.values());
+};
 
 export async function testDbConnection(poolToUse = pool) {
   try {
@@ -426,6 +557,24 @@ const createApp = () => {
       return res.status(500).json({ error: 'Internal Server Error' });
     } finally {
       connection.release();
+    }
+  });
+
+  app.post('/api/supporter-mails/send', async (_req, res) => {
+    try {
+      const { sent } = await sendSupporterBroadcast();
+
+      if (sent === 0) {
+        return res.status(404).json({ error: 'No email addresses available' });
+      }
+
+      return res.status(200).json({
+        status: 'sent',
+        recipients: sent,
+      });
+    } catch (error) {
+      console.error('Supporter mail broadcast error:', error);
+      return res.status(500).json({ error: 'Internal Server Error' });
     }
   });
 
