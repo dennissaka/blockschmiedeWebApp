@@ -112,29 +112,17 @@ const createShowroomEmailContent = (tokens) => {
 };
 
 const createSupporterEmailContent = () => {
-  const subject = 'Einladung zum Blockschmiede YouTube-Livestream';
+  const subject = 'Einladung zum Blockschmiede Twitch-Livestream';
 
-  const text = `An alle Supporter !
+  const text = `Planänderung! 🔔
+Der Stream morgen um 14 Uhr findet nicht auf YouTube statt –
+sondern live auf Twitch: https://www.twitch.tv/blockschmiede21 🎥⚡️
 
-wir sind überglücklich wie sich die Weihnachtsaktion mit dem 1. Bitcoin Charity-Adventskalender entwickelt hat.
-Wir stehen aktuell bei knapp 150 verkauften Kalendern.
-Das ist irre und wäre ohne Dich überhaupt nicht möglich gewesen, dieser Support sucht seinesgleichen.
-Der Kalender ist noch bis einschließlich 30.11.2025 über unseren Shop erhältlich, falls Du also noch einen passenden Adventskalender für deine Liebsten suchst ….. zuschlagen !
-Jetzt geht es in die finale Phase, wir werden am kommenden Samstag, 29.11.2025 einen Live-Stream zum Kalender auf Youtube starten und dabei alles erklären.
-Hintergrundinformationen zur Aktion, Vorstellung Ablaufplan, Klärung offener Fragen aus der Community.
+Wie laufen die 24 Tage des Bitcoin Charity Adventskalenders genau ab?
+Welche Überraschungen warten auf euch?
+Alle Infos gibt’s morgen im Stream.
 
-Sehr gerne möchten wir Dich dazu recht herzlich einladen.
- 
-Samstag, 29.11.2025 ab 14 Uhr
- 
-Du findest uns auf Youtube unter: Blockschmiede21 oder du folgst einfach folgendem Link:
-
-https://m.youtube.com/@blockschmiede21
-
-Folge dem Kanal und aktiviere Benachrichtigungen, damit du diesen Stream und künftige Informationen nicht verpasst.
-
-
-Vielen lieben Dank für diesen unvergleichlichen Support
+Bis morgen! 🧡
  
 Euer Blockschmiede-Team mit allen Sponsoren`;
 

@@ -21,15 +21,15 @@ console.log('[boot] DB config (safe):', {
     const server = createServer(app);
 
     server.listen(config.port, () => {
-      console.log(`✅ Server listening on port ${config.port}`);
+      console.log(`✅ Server listening on port ${config.port} - no send support!!`);
     });
 
-    try {
-      const { sent } = await sendSupporterBroadcast();
-      console.log(`[boot] Supporter mail broadcast sent to ${sent} recipients`);
-    } catch (err) {
-      console.error('[boot] Supporter mail broadcast failed:', err);
-    }
+    // try {
+    //   const { sent } = await sendSupporterBroadcast();
+    //   console.log(`[boot] Supporter mail broadcast sent to ${sent} recipients`);
+    // } catch (err) {
+    //   console.error('[boot] Supporter mail broadcast failed:', err);
+    // }
 
     // Graceful shutdown
     const shutdown = (signal) => {
